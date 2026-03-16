@@ -497,8 +497,9 @@ function joinRoom(){
     roomCode=code; onlineRole='guest'; onlineColor=B;
     // Mark guest joined
     roomRef.child('guest').set('online').then(function(){
-      // Load current state
-      gs=Object.assign(initGS(), deserializeGS(data.state), {selected:null,legalMoves:[]});
+      // Load current state - host saved serialized state
+      var parsed = deserializeGS(data.state);
+      gs=Object.assign(initGS(), parsed, {selected:null,legalMoves:[]});
       startGame('online');
     });
   }).catch(function(e){
@@ -531,15 +532,13 @@ function startFbListener(){
   fbListener=db.ref('rooms/'+roomCode+'/state').on('value', function(snap){
     if(!snap.exists()) return;
     var data=snap.val();
-    // Only apply if it's opponent's move result
-    if(data.turn === onlineColor) return; // still our turn stored = opponent hasn't moved
-    var lm=data.lastMove ? data.lastMove.join(',') : null;
+    // data.turn === onlineColor means opponent just moved → now my turn → update
+    if(data.turn !== onlineColor) return;
+    var lm=data.lastMove ? data.lastMove.join(',') : 'init';
     if(lm===lastMoveId) return;
     lastMoveId=lm;
-    if(gs.turn!==onlineColor){
-      gs=Object.assign({},gs, deserializeGS(data), {selected:null,legalMoves:[]});
-      renderBoard(); updatePanel();
-    }
+    gs=Object.assign({}, initGS(), deserializeGS(data), {selected:null,legalMoves:[]});
+    renderBoard(); updatePanel();
   });
 }
 
