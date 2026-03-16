@@ -415,7 +415,7 @@ var onlineRole=null;
 var onlineColor=W;
 var roomCode='';
 var fbListener=null;
-var lastMoveId=null;
+var lastMoveId=-1; // tracks moveSeq of last applied remote state
 var deferredPrompt=null;
 var clickCount={};
 var lastClick={};
@@ -524,6 +524,8 @@ function cancelOnline(){
 
 function saveOnline(newGs){
   if(gameMode!=='online' || !roomCode) return;
+  // increment sequence on every save so listener can detect new moves
+  newGs.moveSeq = (newGs.moveSeq || 0) + 1;
   db.ref('rooms/'+roomCode+'/state').set(serializeGS(newGs)).catch(function(){});
 }
 
@@ -532,12 +534,13 @@ function startFbListener(){
   fbListener=db.ref('rooms/'+roomCode+'/state').on('value', function(snap){
     if(!snap.exists()) return;
     var data=snap.val();
-    // data.turn === onlineColor means opponent just moved → now my turn → update
+    // Only update if it's now my turn AND sequence is newer than what I have
     if(data.turn !== onlineColor) return;
-    var lm=data.lastMove ? data.lastMove.join(',') : 'init';
-    if(lm===lastMoveId) return;
-    lastMoveId=lm;
-    gs=Object.assign({}, initGS(), deserializeGS(data), {selected:null,legalMoves:[]});
+    var remoteSeq = data.moveSeq || 0;
+    if(remoteSeq <= lastMoveId) return;
+    lastMoveId = remoteSeq;
+    var newGs = deserializeGS(data);
+    gs = Object.assign({}, newGs, {selected:null, legalMoves:[], pendingPromotion:null, vpMsg:''});
     renderBoard(); updatePanel();
   });
 }
@@ -557,7 +560,7 @@ function serializeGS(s){
     vpActivated:s.vpActivated, captured:s.captured,
     statusMsg:s.statusMsg, gameOver:s.gameOver,
     lastMove:s.lastMove, threatenedVPs:s.threatenedVPs,
-    ts:Date.now()
+    moveSeq:(s.moveSeq||0), ts:Date.now()
   };
 }
 function deserializeGS(d){
@@ -570,6 +573,7 @@ function deserializeGS(d){
     statusMsg:d.statusMsg||'', gameOver:d.gameOver||false,
     lastMove:d.lastMove||null,
     threatenedVPs:d.threatenedVPs||{w:[],b:[]},
+    moveSeq:d.moveSeq||0,
     selected:null, legalMoves:[], pendingPromotion:null,
     vpMsg:'', moveHistory:[]
   };
