@@ -522,26 +522,32 @@ function cancelOnline(){
   showScreen('menu-screen');
 }
 
+var onlineMoveSeq = 0;
 function saveOnline(newGs){
   if(gameMode!=='online' || !roomCode) return;
-  // increment sequence on every save so listener can detect new moves
-  newGs.moveSeq = (newGs.moveSeq || 0) + 1;
+  onlineMoveSeq++;
+  newGs.moveSeq = onlineMoveSeq;
   db.ref('rooms/'+roomCode+'/state').set(serializeGS(newGs)).catch(function(){});
 }
 
 function startFbListener(){
   stopFbListener();
+  var isUpdating = false;
   fbListener=db.ref('rooms/'+roomCode+'/state').on('value', function(snap){
-    if(!snap.exists()) return;
+    if(!snap.exists() || isUpdating) return;
     var data=snap.val();
-    // Only update if it's now my turn AND sequence is newer than what I have
+    // Only apply opponent's moves: it's my turn AND seq is newer than last I applied
     if(data.turn !== onlineColor) return;
     var remoteSeq = data.moveSeq || 0;
     if(remoteSeq <= lastMoveId) return;
+    // Make sure this isn't MY own save echoing back
+    if(remoteSeq === onlineMoveSeq) return;
     lastMoveId = remoteSeq;
+    isUpdating = true;
     var newGs = deserializeGS(data);
     gs = Object.assign({}, newGs, {selected:null, legalMoves:[], pendingPromotion:null, vpMsg:''});
     renderBoard(); updatePanel();
+    isUpdating = false;
   });
 }
 
@@ -588,7 +594,8 @@ function startGame(mode){
     onlineColor=onlineRole==='host'?W:B;
     document.getElementById('gp-online-info').style.display='block';
     document.getElementById('gp-room-code').textContent=roomCode;
-    lastMoveId=null;
+    lastMoveId=-1;
+    onlineMoveSeq=0;
     startFbListener();
   }else{
     document.getElementById('gp-online-info').style.display='none';
