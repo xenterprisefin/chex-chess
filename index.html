@@ -415,7 +415,7 @@ var onlineRole=null;
 var onlineColor=W;
 var roomCode='';
 var fbListener=null;
-var lastMoveId=-1; // tracks moveSeq of last applied remote state
+var lastAppliedSeq=-1;
 var deferredPrompt=null;
 var clickCount={};
 var lastClick={};
@@ -522,32 +522,27 @@ function cancelOnline(){
   showScreen('menu-screen');
 }
 
-var onlineMoveSeq = 0;
 function saveOnline(newGs){
   if(gameMode!=='online' || !roomCode) return;
-  onlineMoveSeq++;
-  newGs.moveSeq = onlineMoveSeq;
+  newGs.moveSeq = (newGs.moveHistory ? newGs.moveHistory.length : 0);
   db.ref('rooms/'+roomCode+'/state').set(serializeGS(newGs)).catch(function(){});
 }
 
 function startFbListener(){
   stopFbListener();
-  var isUpdating = false;
   fbListener=db.ref('rooms/'+roomCode+'/state').on('value', function(snap){
-    if(!snap.exists() || isUpdating) return;
+    if(!snap.exists()) return;
     var data=snap.val();
-    // Only apply opponent's moves: it's my turn AND seq is newer than last I applied
+    // The turn check alone prevents echoes:
+    // After I move, data.turn = opponent's color → my listener ignores it
+    // After opponent moves, data.turn = my color → I apply it
     if(data.turn !== onlineColor) return;
     var remoteSeq = data.moveSeq || 0;
-    if(remoteSeq <= lastMoveId) return;
-    // Make sure this isn't MY own save echoing back
-    if(remoteSeq === onlineMoveSeq) return;
-    lastMoveId = remoteSeq;
-    isUpdating = true;
+    if(remoteSeq <= lastAppliedSeq) return;
+    lastAppliedSeq = remoteSeq;
     var newGs = deserializeGS(data);
     gs = Object.assign({}, newGs, {selected:null, legalMoves:[], pendingPromotion:null, vpMsg:''});
     renderBoard(); updatePanel();
-    isUpdating = false;
   });
 }
 
@@ -594,8 +589,7 @@ function startGame(mode){
     onlineColor=onlineRole==='host'?W:B;
     document.getElementById('gp-online-info').style.display='block';
     document.getElementById('gp-room-code').textContent=roomCode;
-    lastMoveId=-1;
-    onlineMoveSeq=0;
+    lastAppliedSeq=-1;
     startFbListener();
   }else{
     document.getElementById('gp-online-info').style.display='none';
@@ -658,7 +652,7 @@ function handleClick(r,c){
     var isLegal=legalMoves.some(function(m){return m[0]===r&&m[1]===c;});
     if(isLegal){
       gs=applyMove(gs,selected[0],selected[1],r,c);
-      if(gameMode==='online'){saveOnline(gs);lastMoveId=gs.lastMove?gs.lastMove.join(','):null;}
+      if(gameMode==='online'){saveOnline(gs);}
       renderBoard(); updatePanel(); showVPBanner();
       if(gs.pendingPromotion){showPromoModal();return;}
       if(gameMode==='ai')runAI();
@@ -676,7 +670,7 @@ function handleDoubleClick(r,c){
   var p=gs.grid[r][c];
   if(!p||p.color!==gs.turn||p.type==='K'||p.type==='V')return;
   gs=convertToVP(gs,r,c);
-  if(gameMode==='online'){saveOnline(gs);lastMoveId=gs.lastMove?gs.lastMove.join(','):null;}
+  if(gameMode==='online'){saveOnline(gs);}
   renderBoard(); updatePanel(); showVPBanner();
   if(gameMode==='ai')runAI();
 }
@@ -704,7 +698,7 @@ function selectPromo(type){
   var newThreatenedVPs={w:[],b:[]};
   for(var rr=0;rr<8;rr++)for(var cc=0;cc<8;cc++){if(res.ng[rr][cc]&&res.ng[rr][cc].type==='V'&&res.ng[rr][cc].color===nt)if(isAttacked(res.ng,rr,cc,opp(nt)))newThreatenedVPs[nt].push([rr,cc]);}
   gs=Object.assign({},gs,{grid:res.ng,turn:nt,pendingPromotion:null,statusMsg:res.msg,gameOver:res.over,vpActivated:res.nva,vpMsg:res.vpMsg,threatenedVPs:newThreatenedVPs});
-  if(gameMode==='online'){saveOnline(gs);lastMoveId=gs.lastMove?gs.lastMove.join(','):null;}
+  if(gameMode==='online'){saveOnline(gs);}
   renderBoard(); updatePanel(); showVPBanner();
   if(gameMode==='ai')runAI();
 }
